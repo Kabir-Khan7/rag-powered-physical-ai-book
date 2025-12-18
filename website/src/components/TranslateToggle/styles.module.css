@@ -1,0 +1,39 @@
+.container {
+  border: 1px dashed var(--ifm-color-emphasis-300);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: var(--ifm-background-surface-color);
+}
+
+.container button {
+  border: none;
+  background: var(--ifm-color-primary-dark);
+  color: #fff;
+  border-radius: 0.65rem;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+}
+
+.translation {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--ifm-color-emphasis-100);
+  line-height: 1.6;
+  direction: rtl;
+  text-align: right;
+  font-size: 1rem;
+}
+
+.translation h4 {
+  margin-top: 0;
+  text-align: left;
+  direction: ltr;
+}
+
+.error {
+  color: #c2410c;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}

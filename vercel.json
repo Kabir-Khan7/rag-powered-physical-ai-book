@@ -1,0 +1,9 @@
+{
+  "framework": "react",
+  "buildCommand": "npm --prefix website run build",
+  "installCommand": "npm --prefix website install",
+  "outputDirectory": "website/build",
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  }
+}

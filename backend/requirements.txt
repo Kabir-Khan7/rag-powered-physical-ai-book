@@ -1,0 +1,10 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+openai==1.57.4
+qdrant-client==1.9.1
+pydantic-settings==2.6.1
+tiktoken==0.8.0
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.13.3
+better-auth==0.0.1b11
