@@ -17,10 +17,6 @@ class Settings(BaseSettings):
 
     site_base_url: str = "https://physical-ai-textbook.vercel.app"
 
-    neon_database_url: Optional[str] = None
-    better_auth_secret: Optional[str] = None
-    better_auth_host: Optional[str] = None
-
 
 @lru_cache
 def get_settings() -> Settings:

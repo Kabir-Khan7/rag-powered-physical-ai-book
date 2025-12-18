@@ -4,6 +4,23 @@
   padding: 1rem;
   margin-bottom: 1rem;
   background: var(--ifm-color-emphasis-0);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.formGrid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.formGrid input,
+.formGrid select {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
 }
 
 .container button {

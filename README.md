@@ -1,43 +1,49 @@
 # Hackathon I – Physical AI Textbook Platform
 
-This monorepo houses the full stack needed to publish the Physical AI & Humanoid Robotics textbook, power retrieval-augmented question answering, and deliver personalized learning experiences.
+This repo packages the entire Physical AI & Humanoid Robotics textbook workflow: chapter generation, Docusaurus frontend, RAG-ready ingestion, and a FastAPI backend for QA, personalization, and Urdu translation.
 
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
 | `Book/book.md` | Single-source manuscript (do not edit generated docs manually). |
-| `scripts/` | Automation helpers (`split_book.py`, `ingest_book.py`). |
-| `website/` | Docusaurus docs-only frontend deployed to Vercel. |
-| `backend/` | FastAPI service powering QA, ingestion, translation, personalization. |
+| `scripts/split_book.py` | Splits the book into per-chapter docs with metadata. |
+| `scripts/ingest_book.py` | Chunks chapters, embeds with OpenAI, and upserts into Qdrant. |
+| `website/` | Docusaurus docs-only site deployed to Vercel. |
+| `backend/` | FastAPI service handling QA, ingestion, translation, personalization. |
 
-## Frontend (Phase 1)
+---
 
-The Docusaurus site is configured in docs-only mode where Chapter 1 serves the homepage and client-side search is available offline. All chapters are generated from `Book/book.md` via `python scripts/split_book.py`.
+## Frontend (Docusaurus)
 
-### Local Development
+Docs-only Docusaurus is configured so Chapter 1 renders at `/` and local search works offline.
 
 ```bash
-python scripts/split_book.py          # regenerate chapter files if book.md changes
-npm --prefix website install          # install frontend deps
-npm --prefix website run start        # dev server at http://localhost:3000
-npm --prefix website run build        # production build (outputs to website/build)
+python scripts/split_book.py          # regenerate docs after editing Book/book.md
+npm --prefix website install
+npm --prefix website run start        # http://localhost:3000
+npm --prefix website run build        # outputs to website/build
 ```
 
-Set `BACKEND_URL` to your FastAPI server in `website/.env` (copy from `.env.example`) so the chatbot widget can reach the API.
+Set `website/.env` (copy from `.env.example`) so `BACKEND_URL` points to your FastAPI server.
 
-## Deployment (Phase 2)
+### Deployment
 
-Vercel deployment is configured through `vercel.json` to run the website build. Set the project root to the repo’s root when importing on Vercel. The resulting public URL should be documented here once provisioned.
+`vercel.json` already specifies:
+- **Install** `npm --prefix website install`
+- **Build** `npm --prefix website run build`
+- **Output** `website/build`
 
-- **Build command**: `npm --prefix website run build`
-- **Install command**: `npm --prefix website install`
-- **Output directory**: `website/build`
-- **Live URL**: _pending deployment (update here after Vercel import)_
+After Vercel import, record the live URL here.
 
-## Content Ingestion (Phase 3)
+---
 
-`scripts/ingest_book.py` reads every generated chapter, chunks content (~800 tokens, 150 overlap), generates embeddings with OpenAI, and upserts them into Qdrant with metadata (`chapter_id`, `heading`, `source_url`, `snippet`).
+## Content Ingestion
+
+`scripts/ingest_book.py` performs:
+1. Iterate every generated chapter (`website/docs/chapters/*.md`).
+2. Chunk text (~800 tokens, 150 overlap) using `tiktoken` when available.
+3. Embed chunks via OpenAI and upsert them into Qdrant with metadata (`chapter_id`, `heading`, `snippet`, `source_url`).
 
 ### Required Environment
 
@@ -50,74 +56,65 @@ QDRANT_COLLECTION=physical-ai-textbook
 SITE_BASE_URL=https://physical-ai-textbook.vercel.app  # optional override
 ```
 
-### Run
-
+Run:
 ```bash
-export OPENAI_API_KEY=...
-export QDRANT_URL=...
-export QDRANT_API_KEY=...
-export QDRANT_COLLECTION=physical-ai-textbook
 python scripts/ingest_book.py
 ```
+Re-running is safe—the script uses deterministic IDs and overwrites existing vectors.
 
-The script is idempotent: chunk IDs are deterministic so re-runs safely overwrite prior vectors.
+---
 
-## Backend (Phase 4)
+## Backend (FastAPI)
 
-FastAPI app lives under `backend/app`. Key endpoints:
-
+Endpoints:
 | Endpoint | Description |
 | --- | --- |
-| `POST /api/qa` | QA with optional `selected_text` constraint, always returns citations. |
-| `POST /api/ingest` | Calls the ingestion pipeline via Python to refresh Qdrant. |
-| `POST /api/translate` | English → Urdu translation via OpenAI, preserving technical structure. |
-| `POST /api/personalize` | Generates overlay notes tailored to learner preferences. |
+| `POST /api/qa` | Answers questions with optional `selected_text`; always cites sources. |
+| `POST /api/ingest` | Re-runs the ingestion script from within the API. |
+| `POST /api/translate` | English → Urdu translation using OpenAI, accepts `text` or `chapter_id`. |
+| `POST /api/personalize` | Generates overlays based on user-supplied learning preferences. |
 
-### Backend Setup
+### Setup
 
 ```bash
 cd backend
 python -m venv .venv
 .venv\Scripts\activate  # or source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn backend.app.main:app --reload
+uvicorn backend.app.main:app --reload --port 8000
 ```
 
-The backend reads the same environment variables listed above plus:
-
+Environment variables:
 ```
-OPENAI_RESPONSE_MODEL=gpt-4o-mini  # optional override
-SITE_BASE_URL=https://physical-ai-textbook.vercel.app
-NEON_DATABASE_URL=postgresql+asyncpg://...   # required for later phases
-BETTER_AUTH_SECRET=...                      # required for later phases
-```
-
-## Chatbot UI (Phase 5)
-
-A floating widget (bottom-right) lets readers ask questions or toggle "Use selected text only". Selecting text in the doc and clicking "Capture selection" populates the constraint. Responses show clickable citations that jump to the referenced chapter section. Configure `BACKEND_URL` so the widget can reach `/api/qa`.
-
-## Authentication & Personalization (Phases 6-7)
-
-- Better-Auth Python SDK proxies signup/signin/session validation (see `BetterAuthService`).
-- User profiles are persisted in Neon (`backend/app/db_models.py`) capturing software background, hardware background, and learning preference.
-- Endpoints:
-  - `POST /api/auth/signup`
-  - `POST /api/auth/signin`
-  - `GET /api/auth/session`
-  - `POST /api/profile` & `GET /api/profile`
-- Frontend adds a floating auth panel plus a "Personalize this chapter" button (visible only when logged in) that calls `/api/personalize` with the stored profile metadata.
-
-### Additional Environment
-
-```
-NEON_DATABASE_URL=postgresql+asyncpg://<user>:<password>@<host>/<database>
-BETTER_AUTH_SECRET=<Better-Auth admin token>
-BETTER_AUTH_HOST=https://api.better-auth.com  # override if self-hosting
+OPENAI_API_KEY=...
+OPENAI_RESPONSE_MODEL=gpt-4o-mini   # optional override
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+QDRANT_URL=...
+QDRANT_API_KEY=...
+QDRANT_COLLECTION=physical-ai-textbook
+SITE_BASE_URL=https://physical-ai-textbook.vercel.app  # used for citations
 ```
 
-- Chapter footers now include a “Translate to Urdu” toggle that calls `/api/translate` with `chapter_id` and displays a right-to-left panel while keeping English available.
+FastAPI docs are available at `http://localhost:8000/docs`.
 
-## Next Steps
+---
 
-1. Deploy backend + Qdrant + Neon + Vercel and capture live URLs along with env var instructions (Phase 9).
-2. End-to-end validation checklist plus demo steps in this README.
+## Frontend Features
+
+- **Chatbot widget** (floating button): asks book-wide questions or constrains answers to highlighted text via `/api/qa`.
+- **Personalize panel** (per chapter footer): readers enter optional background + preferences, the frontend calls `/api/personalize` and displays the overlay inline.
+- **Urdu translation toggle**: calls `/api/translate` with the chapter ID and shows right-to-left output while keeping the English original.
+
+---
+
+## End-to-End Checklist
+
+1. `python scripts/split_book.py`
+2. `npm --prefix website run build`
+3. Configure backend `.env` and run `uvicorn backend.app.main:app --reload`
+4. `python scripts/ingest_book.py`
+5. Visit `http://localhost:3000`:
+   - Ask chatbot question (with & without selected text)
+   - Submit personalization form → overlay appears
+   - Toggle Urdu translation
+6. Deploy backend + frontend (Vercel) and update this README with live URLs + env instructions.

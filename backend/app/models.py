@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 class QARequest(BaseModel):
@@ -45,41 +45,14 @@ class TranslateResponse(BaseModel):
 class PersonalizeRequest(BaseModel):
     chapter_id: str
     difficulty: str = Field(default="beginner")
-    hardware_focus: Optional[str] = None
+    hardware_focus: Optional[str] = Field(default=None, description="Hardware area of interest.")
     learning_preference: Optional[str] = Field(
         default=None, description="e.g., visual, hands-on, theoretical"
     )
+    software_background: Optional[str] = None
+    hardware_background: Optional[str] = None
+    learning_goal: Optional[str] = None
 
 
 class PersonalizeResponse(BaseModel):
     overlay: str
-
-
-class AuthSignupRequest(BaseModel):
-    name: str
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-    software_background: str
-    hardware_background: str
-    learning_preference: str
-
-
-class AuthResponse(BaseModel):
-    token: str
-    user_id: str
-    email: EmailStr
-
-
-class AuthSigninRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-
-
-class ProfileUpsertRequest(BaseModel):
-    software_background: str
-    hardware_background: str
-    learning_preference: str
-
-
-class ProfileResponse(ProfileUpsertRequest):
-    email: EmailStr

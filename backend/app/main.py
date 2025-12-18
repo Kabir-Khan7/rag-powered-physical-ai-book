@@ -8,9 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app import models
 from backend.app.config import get_settings
-from backend.app.db import get_session, init_db
-from backend.app.db_models import UserProfile
-from backend.app.services.better_auth import BetterAuthService
 from backend.app.services.rag import RAGService
 from scripts.ingest_book import ingest_book
 
@@ -21,7 +18,7 @@ app = FastAPI(
     description="FastAPI service for textbook QA, ingestion, translation, and personalization.",
 )
 rag_service = RAGService(settings)
-auth_service = BetterAuthService(settings)
+
 allowed_origins = [
     settings.site_base_url,
     "http://localhost:3000",
@@ -34,6 +31,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 ROOT = Path(__file__).resolve().parents[2]
 CHAPTER_DIR = ROOT / "website" / "docs" / "chapters"
 
@@ -56,7 +54,7 @@ def load_chapter(chapter_id: str) -> str:
 def qa_endpoint(payload: models.QARequest):
     try:
         return rag_service.answer(payload)
-    except Exception as exc:  # pragma: no cover - ensures friendly errors
+    except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"QA failed: {exc}") from exc
 
 
@@ -81,7 +79,7 @@ def translate_endpoint(payload: models.TranslateRequest):
         completion = rag_service.openai.chat.completions.create(
             model=settings.openai_response_model,
             messages=[
-                {"role": "system", "content": "Translate technical English into Urdu preserving code and math."},
+                {"role": "system", "content": "Translate technical English into Urdu while preserving code/math."},
                 {"role": "user", "content": source_text},
             ],
             temperature=0.1,
@@ -95,12 +93,12 @@ def translate_endpoint(payload: models.TranslateRequest):
 @app.post("/api/personalize", response_model=models.PersonalizeResponse)
 def personalize_endpoint(payload: models.PersonalizeRequest):
     prompt = (
-        "Create a concise overlay (<=250 words) complementing the base chapter. "
+        "Create a concise overlay (<=250 words) that complements the chapter excerpt. "
         "Provide:\n"
         "- Beginner insight (plain language)\n"
         "- Advanced insight (deeper math/control theory angle)\n"
-        "- Hardware-specific note based on the learner profile\n"
-        "Reference the provided chapter excerpt only; do not invent new claims."
+        "- Hardware-specific note aligned to the learner preferences\n"
+        "Ground everything in the provided excerpt."
     )
     chapter_text = load_chapter(payload.chapter_id)
     excerpt = chapter_text[:1500]
@@ -116,6 +114,9 @@ def personalize_endpoint(payload: models.PersonalizeRequest):
                         f"Desired difficulty: {payload.difficulty}\n"
                         f"Hardware focus: {payload.hardware_focus or 'general'}\n"
                         f"Learning preference: {payload.learning_preference or 'balanced'}\n"
+                        f"Software background: {payload.software_background or 'unspecified'}\n"
+                        f"Hardware background: {payload.hardware_background or 'unspecified'}\n"
+                        f"Learning goal: {payload.learning_goal or 'master humanoid robotics'}\n"
                         f"Excerpt:\n{excerpt}"
                     ),
                 },
@@ -126,107 +127,3 @@ def personalize_endpoint(payload: models.PersonalizeRequest):
         return models.PersonalizeResponse(overlay=overlay.strip())
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Personalization failed: {exc}") from exc
-
-
-@app.on_event("startup")
-async def on_startup():
-    if settings.neon_database_url:
-        await init_db()
-
-
-@app.post("/api/auth/signup", response_model=models.AuthResponse)
-async def signup(payload: models.AuthSignupRequest):
-    if not settings.neon_database_url:
-        raise HTTPException(status_code=500, detail="Database not configured.")
-    if not settings.better_auth_secret:
-        raise HTTPException(status_code=500, detail="Better-Auth secret missing.")
-    try:
-        response = auth_service.signup(payload.name, payload.email, payload.password)
-        user = response.user
-        async with get_session() as session:
-            profile = UserProfile(
-                user_id=user.id,
-                email=user.email,
-                software_background=payload.software_background,
-                hardware_background=payload.hardware_background,
-                learning_preference=payload.learning_preference,
-            )
-            session.add(profile)
-            await session.commit()
-        return models.AuthResponse(token=response.token or "", user_id=user.id, email=user.email)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Signup failed: {exc}") from exc
-
-
-@app.post("/api/auth/signin", response_model=models.AuthResponse)
-async def signin(payload: models.AuthSigninRequest):
-    if not settings.better_auth_secret:
-        raise HTTPException(status_code=500, detail="Better-Auth secret missing.")
-    try:
-        response = auth_service.signin(payload.email, payload.password)
-        user = response.user or {}
-        return models.AuthResponse(token=response.token, user_id=_get_user_attr(user, "id", ""), email=payload.email)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Signin failed: {exc}") from exc
-
-
-@app.get("/api/auth/session")
-async def session_info(authorization: str):
-    token = authorization.replace("Bearer", "").strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing token.")
-        session = auth_service.get_session(token)
-        if not session:
-            raise HTTPException(status_code=401, detail="Invalid session.")
-    return session.to_dict() if hasattr(session, "to_dict") else {"user": _get_user_attr(session.user, "id")}
-
-
-@app.post("/api/profile", response_model=models.ProfileUpsertRequest)
-async def upsert_profile(payload: models.ProfileUpsertRequest, authorization: str):
-    token = authorization.replace("Bearer", "").strip()
-    session = auth_service.get_session(token)
-    if not session or not session.user:
-        raise HTTPException(status_code=401, detail="Invalid session.")
-    user_id = _get_user_attr(session.user, "id")
-    async with get_session() as db_session:
-        profile = await db_session.get(UserProfile, user_id)
-        if profile:
-            profile.software_background = payload.software_background
-            profile.hardware_background = payload.hardware_background
-            profile.learning_preference = payload.learning_preference
-        else:
-            profile = UserProfile(
-                user_id=user_id,
-                email=_get_user_attr(session.user, "email", ""),
-                software_background=payload.software_background,
-                hardware_background=payload.hardware_background,
-                learning_preference=payload.learning_preference,
-            )
-            db_session.add(profile)
-        await db_session.commit()
-    return payload
-
-
-@app.get("/api/profile", response_model=models.ProfileResponse)
-async def get_profile(authorization: str):
-    token = authorization.replace("Bearer", "").strip()
-    session = auth_service.get_session(token)
-    if not session or not session.user:
-        raise HTTPException(status_code=401, detail="Invalid session.")
-    user_id = _get_user_attr(session.user, "id")
-    async with get_session() as db_session:
-        profile = await db_session.get(UserProfile, user_id)
-        if not profile:
-            raise HTTPException(status_code=404, detail="Profile not found.")
-        return models.ProfileResponse(
-            email=profile.email,
-            software_background=profile.software_background,
-            hardware_background=profile.hardware_background,
-            learning_preference=profile.learning_preference,
-        )
-def _get_user_attr(user, attr: str, default=None):
-    if hasattr(user, attr):
-        return getattr(user, attr)
-    if isinstance(user, dict):
-        return user.get(attr, default)
-    return default
